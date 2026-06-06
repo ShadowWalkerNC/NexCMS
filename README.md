@@ -2,8 +2,8 @@
 
 **A free, open-source, self-hosted CMS built for the modern web.**
 
-> Own your stack. Own your content. Own your sites — forever.
-> No monthly fees. No platform lock-in. No one else's rules.
+> Own your stack. Own your content. Own your sites — forever.  
+> No monthly fees. No platform lock-in. No one else's rules.  
 > Server + domain = unlimited free sites.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -46,6 +46,7 @@ Every major CMS today falls into one of two traps:
 - **Theme as a package.** Build a theme, zip it, install it, activate it. Share it on GitHub.
 - **Open REST API.** Fully documented. Anyone can build against any NexCMS install — mobile apps, integrations, tools.
 - **No middleman, ever.** Your server. Your domain. Your data. No monthly bill, no account required.
+- **Future-proof by design.** New tools, new languages, new runtimes — NexCMS absorbs them through its extensibility layer without core changes.
 
 ---
 
@@ -55,8 +56,10 @@ Every major CMS today falls into one of two traps:
 - ✅ Visual drag-and-drop page builder (Craftjs)
 - ✅ Block-based content editor (Hero, Rich Text, Gallery, Cards, CTA, Embed, and more)
 - ✅ Custom content types (Collections) — build your own data models
+- ✅ Formula fields — safe expression engine (`mathjs`) for calculations in content
 - ✅ Theme system — install, activate, and customize themes from the admin panel
 - ✅ Extension system — Components, Modules, Plugins, Packages
+- ✅ Two-tier extensibility — JS/TS dynamic imports + WebAssembly plugin runtime
 - ✅ Open REST API — public, documented, open for third-party development
 - ✅ Media library with folder organization (local disk + S3 adapter)
 - ✅ Role-based access control (Super Admin, Admin, Editor, Author, Viewer)
@@ -85,10 +88,12 @@ Every major CMS today falls into one of two traps:
 | **Admin data** | TanStack Query | Server state management |
 | **Public renderer** | Next.js 15 App Router | RSC + SSR + ISR for theme performance and SEO |
 | **Page builder** | Craftjs | Open-source, React, extensible |
-| **Extension hooks** | eventemitter3 | Tiny, typed, fast event system |
+| **Extension hooks** | eventemitter3 | Tiny, typed, fast event bus |
+| **WASM runtime** | Node.js native WASM + `@wasmer/wasi` | Sandboxed plugins in any language |
+| **Formula engine** | mathjs | Safe expression evaluation for content calculations |
+| **Shared types** | `packages/types/` | Single source of truth for API contracts |
 | **Styling** | Tailwind CSS + CSS Variables | Flexible theming without conflicts |
 | **UI components** | Shadcn/UI | Accessible, unstyled primitives |
-| **Shared types** | `packages/types/` | Single source of truth for API contracts |
 | **Deployment** | Docker + Railway/Render + Cloudflare Workers | Flexible self-host or cloud |
 
 > **Why no Supabase?** NexCMS's core promise is zero vendor dependency. Supabase Auth and Supabase Storage are managed cloud services — using them would mean your "self-hosted" install is still calling home to a third party. NexCMS uses raw PostgreSQL, self-contained JWT auth, and local/S3 media storage so your install is truly yours.
@@ -122,12 +127,20 @@ Inspired by Joomla's proven four-type extension model, rebuilt for Node.js and R
   "version": "1.0.0",
   "author": "ShadowWalkerNC",
   "license": "MIT",
+  "runtime": "js",
   "entrypoint": "index.js",
   "hooks": ["onPageRender", "onContentSave"],
   "adminPanel": true,
   "routes": ["/blog", "/blog/:slug"]
 }
 ```
+
+The `"runtime"` field controls how NexCMS loads your extension:
+
+| Value | How It Loads | Use Case |
+|---|---|---|
+| `"js"` | Dynamic ESM `import()` | JavaScript / TypeScript extensions (default) |
+| `"wasm"` | Node.js WASM runtime + `@wasmer/wasi` | Rust, Go, Python, or any language that compiles to WASM |
 
 ### Available Hook Events
 
@@ -140,6 +153,18 @@ Inspired by Joomla's proven four-type extension model, rebuilt for Node.js and R
 | `onFormSubmit` | A form is submitted |
 | `onUserLogin` | A user logs in |
 | `onUserCreate` | A new user is created |
+
+Every hook receives a versioned `AppContext` object:
+
+```ts
+interface AppContext {
+  nexcms: { version: string };  // Detected by extensions for backward compat
+  site: SiteConfig;
+  request?: Request;
+  response?: ResponseBuilder;
+  data?: Record<string, unknown>;
+}
+```
 
 ### First-Party Extensions (v1.0)
 
@@ -154,6 +179,101 @@ Inspired by Joomla's proven four-type extension model, rebuilt for Node.js and R
 | NexBooking | Component | Appointment and reservation system |
 | NexAnalytics | Plugin | Privacy-first analytics dashboard |
 | NexAI | Plugin | AI copywriting assistant (Anthropic API) |
+
+---
+
+## Extensibility — Future-Proof Architecture
+
+NexCMS is designed to absorb new tools, languages, and runtimes without changes to core. Every capability lives in one of two extension tiers.
+
+### Tier 1 — Dynamic JS/TS Extensions
+
+The extension engine uses Node's native `import()` to load JS/TS extensions at runtime. When a new library, SDK, or tool becomes available — a new AI model, a new payment processor, a new analytics platform — you wrap it in an extension manifest and ship it as a zip. NexCMS core never changes.
+
+```ts
+// extension-engine/loader.ts
+for (const ext of installedExtensions) {
+  if (ext.runtime !== 'wasm') {
+    const mod = await import(ext.entrypoint);  // Dynamic ESM — any JS/TS tool
+    for (const hook of ext.hooks) {
+      eventBus.on(hook, mod.default[hook]);
+    }
+  }
+}
+```
+
+### Tier 2 — WebAssembly Plugin Runtime
+
+For extensions written in **any language** — Rust, Go, Python, Ruby, C, C++ — NexCMS runs them as sandboxed WASM modules. The host grants only the capabilities each module explicitly declares. A bad plugin cannot read the filesystem, make unauthorized network calls, or affect other extensions.
+
+```json
+{
+  "name": "NexPricer",
+  "type": "plugin",
+  "runtime": "wasm",
+  "entrypoint": "pricer.wasm",
+  "hooks": ["onFormSubmit"],
+  "exports": ["calculatePrice", "applyDiscount"]
+}
+```
+
+**What this unlocks over time:**
+
+| Future Tool | How It Integrates |
+|---|---|
+| New JS/TS SDK (any year) | Tier 1 JS extension — wrap and ship |
+| Rust performance plugin | Tier 2 WASM — compile to `.wasm`, manifest, zip |
+| Python data extension | Tier 2 WASM via Pyodide (full CPython in WASM) |
+| Go microservice logic | Tier 2 WASM — compile to WASM target |
+| New AI provider | Swap provider in `NexAI` plugin config — no core changes |
+| New payment processor | New NexShop adapter extension — no core changes |
+
+---
+
+## Calculation Engine
+
+NexCMS includes a built-in calculation layer for content that requires math — pricing, quantities, nutritional data, estimates, and more.
+
+### Formula Fields in Collections
+
+Any Collection field can be a **Formula** type. Formulas are evaluated safely using `mathjs` — never `eval()`. Store the formula string in your content model, pass variables at render time.
+
+```ts
+import { evaluate } from 'mathjs';
+
+// Formula stored in Collection schema: "price * quantity * (1 - discount)"
+const total = evaluate(formula, { price: 12.50, quantity: 3, discount: 0.1 });
+// → 33.75
+```
+
+**Real-world uses:**
+- Menu item pricing with modifiers
+- Catering quote builders
+- Order total estimates with tax
+- Recipe scaling by serving count
+- Nutritional totals across ingredients
+
+### Worker Thread Calculations
+
+For heavy computations inside extensions (route optimization, statistical analysis, large dataset processing), NexCMS extensions can spawn **Node.js Worker Threads** — parallel execution that never blocks the main event loop or other site visitors.
+
+```ts
+// Inside an extension — heavy calc runs off the main thread
+import { Worker } from 'node:worker_threads';
+
+export const onFormSubmit = async (ctx: AppContext) => {
+  const worker = new Worker('./calc-worker.js', {
+    workerData: ctx.data
+  });
+  ctx.response.data = await new Promise(resolve => {
+    worker.on('message', resolve);
+  });
+};
+```
+
+### Python / Data Science (Phase 4+)
+
+Complex statistical or data science calculations can be shipped as a WASM extension using **Pyodide** (CPython compiled to WASM). Write the logic in Python using `numpy`, `scipy`, or `pandas` — ship it as a NexCMS zip. A future `NexNutrition` extension, for example, could compute full nutritional profiles from ingredient databases in Python, with no Python runtime required on the host server.
 
 ---
 
@@ -267,7 +387,7 @@ Read endpoints are public by default. Write operations require authentication. C
 
 ### Cache Strategy
 
-All public read endpoints include `Cache-Control: public, s-maxage=60, stale-while-revalidate=3600` headers. Publishing content fires a webhook that busts the CDN/edge cache automatically. This means any NexCMS install behind Cloudflare or a CDN gets edge-cached reads with zero configuration.
+All public read endpoints include `Cache-Control: public, s-maxage=60, stale-while-revalidate=3600` headers. Publishing content fires a webhook that busts the CDN/edge cache automatically. Any NexCMS install behind Cloudflare or a CDN gets edge-cached reads with zero configuration.
 
 ### Webhooks
 
@@ -297,6 +417,8 @@ nexcms/
 │   ├── cli/                # NexCMS CLI tool
 │   ├── theme-engine/       # Theme loading + injection system
 │   ├── extension-engine/   # Extension loading + hook system (eventemitter3)
+│   ├── formula-engine/     # mathjs-based safe expression evaluator
+│   ├── wasm-runtime/       # WebAssembly plugin sandbox (@wasmer/wasi)
 │   ├── client/             # JS/TS SDK for external use
 │   ├── themes/
 │   │   ├── theme-hearth/
@@ -337,11 +459,11 @@ nexcms/
 
 | Phase | Timeline | Goal |
 |---|---|---|
-| **Phase 0 — Architecture** | Now → Jul 2026 | Schema, wireframes, API contracts, stack decisions, GitHub setup |
-| **Phase 1 — Core Engine** | Jul → Sep 2026 | Hono API, Drizzle schema, admin panel, page builder, first theme |
-| **Phase 2 — Extensions & Themes** | Sep → Nov 2026 | Theme engine (Next.js RSC), extension installer, 4 core extensions |
-| **Phase 3 — Visual Builder** | Nov 2026 → Jan 2027 | Craftjs drag-and-drop, inline editing, live preview |
-| **Phase 4 — CLI & Deployment** | Q1 2027 | NexCMS CLI, Docker, multi-site, static export, Cloudflare Workers target |
+| **Phase 0 — Architecture** | Now → Jul 2026 | Schema, wireframes, API contracts, manifest spec, AppContext design, GitHub setup |
+| **Phase 1 — Core Engine** | Jul → Sep 2026 | Hono API, Drizzle schema, admin panel, page builder, formula engine, first theme |
+| **Phase 2 — Extensions & Themes** | Sep → Nov 2026 | Theme engine (Next.js RSC), extension installer, JS runtime, 4 core extensions |
+| **Phase 3 — Visual Builder** | Nov 2026 → Jan 2027 | Craftjs drag-and-drop, inline editing, live preview, WASM runtime (beta) |
+| **Phase 4 — CLI & Deployment** | Q1 2027 | NexCMS CLI, Docker, multi-site, static export, Cloudflare Workers target, Pyodide WASM |
 | **Phase 5 — Community** | Q2 2027+ | Docs site, extension registry, community forum |
 
 ---
@@ -418,6 +540,7 @@ Quick start:
 nexcms create:extension my-extension --type=component
 cd my-extension
 # Edit nexcms.manifest.json
+# Set "runtime": "js" for TypeScript or "runtime": "wasm" for compiled languages
 # Build your extension
 # Zip and distribute on GitHub
 ```
@@ -485,7 +608,7 @@ SOFTWARE.
 
 ## Built By
 
-**Nate Cowperthwaite** ([@ShadowWalkerNC](https://github.com/ShadowWalkerNC))
+**Nate Cowperthwaite** ([@ShadowWalkerNC](https://github.com/ShadowWalkerNC))  
 Chef. Developer. Builder of things.
 
 *NexCMS exists because no one should have to pay a monthly fee just to own a website.*

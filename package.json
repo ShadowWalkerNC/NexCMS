@@ -1,0 +1,32 @@
+{
+  "name": "nexcms",
+  "version": "0.0.1",
+  "private": true,
+  "description": "NexCMS — free, open-source, self-hosted CMS for the modern web",
+  "author": "Nathaniel Cowperthwaite <shadowwalker@nexcms.dev>",
+  "license": "MIT",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules",
+    "db:migrate": "turbo run db:migrate --filter=@nexcms/core",
+    "db:seed": "turbo run db:seed --filter=@nexcms/core",
+    "db:reset": "turbo run db:reset --filter=@nexcms/core",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.3.0",
+    "rimraf": "^5.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  }
+}

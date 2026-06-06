@@ -1,0 +1,76 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexcms_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nexcms
+      POSTGRES_PASSWORD: nexcms
+      POSTGRES_DB: nexcms_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nexcms']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── NexCMS Core API ─────────────────────────────────────────────────────────
+  core:
+    build:
+      context: .
+      dockerfile: packages/core/Dockerfile
+    container_name: nexcms_core
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://nexcms:nexcms@postgres:5432/nexcms_dev
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 30d
+      MEDIA_STORAGE: local
+      MEDIA_LOCAL_PATH: /app/uploads
+      PORT: 3001
+    ports:
+      - '3001:3001'
+    volumes:
+      - uploads_data:/app/uploads
+
+  # ── NexCMS Admin Panel ───────────────────────────────────────────────────────
+  admin:
+    build:
+      context: .
+      dockerfile: packages/admin/Dockerfile
+    container_name: nexcms_admin
+    restart: unless-stopped
+    depends_on:
+      - core
+    ports:
+      - '5173:80'
+
+  # ── NexCMS Public Site ───────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    container_name: nexcms_web
+    restart: unless-stopped
+    depends_on:
+      - core
+    environment:
+      API_URL: http://core:3001
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres_data:
+  uploads_data:
